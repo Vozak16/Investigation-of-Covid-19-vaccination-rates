@@ -1,0 +1,393 @@
+---
+title: "Celebrities and vaccinations"
+output: html_notebook
+authors: Nazar Dobrovolskyy, Volodymyr Savchuk 
+---
+
+### Load the required libraries for research
+```{r}
+#install.packages("data.table")
+library(tidyverse)
+library(data.table)
+library(dplyr)
+library(plotly)
+```
+
+### Read vaccination data for all countries
+```{r}
+data_vaccination <- read.csv("country_vaccinations.csv")
+
+data_vaccination
+```
+
+### Replace `NA` for numeric columns
+```{r}
+data_vaccination <- data_vaccination  %>%
+  mutate(across(where(is.numeric), ~ ifelse(is.na(.), 0, .)))
+data_vaccination
+```
+
+
+### Reading data on the vaccination of famous Britons
+```{r}
+famous_british_vaccinated <- read.csv("famous_british_people_vaccinated_2021.csv")
+
+famous_british_vaccinated <- famous_british_vaccinated[!duplicated(famous_british_vaccinated$date), ]
+
+famous_british_vaccinated
+```
+
+### Reading data on the vaccination of famous Americans
+```{r}
+famous_us_vaccinated <- read.csv("famous_us_people_vaccinated_2021.csv")
+
+famous_us_vaccinated <- famous_us_vaccinated[!duplicated(famous_us_vaccinated$date), ]
+
+famous_us_vaccinated
+```
+
+
+
+
+### Clear unnecessary data and add days of the year
+
+
+#### Withdrawal of vaccinated Britons
+```{r}
+british_vaccinated <- data_vaccination[ data_vaccination$country == "England", ]
+british_vaccinated.daily <- select(british_vaccinated, daily_vaccinations_per_million, date)
+british_vaccinated.daily$days <- c(1:length(british_vaccinated.daily$date))
+british_vaccinated.daily$date <- as.Date(british_vaccinated$date)
+british_vaccinated.daily
+```
+
+
+#### Withdrawal of vaccinated Americans
+```{r}
+us_vaccinated <- data_vaccination[ data_vaccination$country == "United States", ]
+us_vaccinated.daily <- select(us_vaccinated, daily_vaccinations_per_million, date)
+
+us_vaccinated.daily$date <- as.Date(us_vaccinated.daily$date)
+us_vaccinated.daily <- us_vaccinated.daily[us_vaccinated.daily$date >= "2021-01-01", ]
+
+us_vaccinated.daily$days <- c(1:length(us_vaccinated.daily$date))
+us_vaccinated.daily
+```
+
+### Adding all vaccinated Britons by week
+```{r}
+#require(tidyverse)
+
+british_vaccinated.weekly <- british_vaccinated.daily %>% 
+  group_by(week = week(date)) %>% 
+  summarise_if(is.numeric, sum)
+
+british_vaccinated.weekly <- british_vaccinated.weekly %>% 
+  rename(
+    weekly_vaccinations_per_million = daily_vaccinations_per_million
+    )
+
+british_vaccinated.weekly$days <- NULL
+british_vaccinated.weekly
+```
+
+### Adding all vaccinated Americans by week
+```{r}
+us_vaccinated.weekly <- us_vaccinated.daily %>% 
+  group_by(week = week(date)) %>% 
+  summarise_if(is.numeric, sum)
+
+us_vaccinated.weekly <- us_vaccinated.weekly %>% 
+  rename(
+    weekly_vaccinations_per_million = daily_vaccinations_per_million
+    )
+
+us_vaccinated.weekly$days <- NULL
+us_vaccinated.weekly
+```
+
+### Grouping of Britons by days of the year
+```{r}
+famous_british_vaccinated <- famous_british_vaccinated %>% 
+  group_by(week = week(date)) %>%
+  group_by(days = yday(date))
+
+famous_british_vaccinated
+```
+
+### Grouping of Americans by days of the year
+```{r}
+famous_us_vaccinated <- famous_us_vaccinated %>% 
+  group_by(week = week(date)) %>%
+  group_by(days = yday(date))
+
+famous_us_vaccinated
+```
+
+#### Because we have information that famous Britons were vaccinated, but we do not have information about what would have happened if they had not been vaccinated. Therefore, the impact of vaccination of famous people in the same country is inappropriate. To do this, we will take a +- similar country for vaccinations to Britain, such as the United States. And compare the famous Britons on the Americans and the famous Americans on the Britons
+
+## Americans and famous Britons
+
+#### By weeks
+```{r}
+p <- us_vaccinated.weekly %>%
+  ggplot( aes(x=week, y=weekly_vaccinations_per_million)) +
+    geom_area(fill="#69b3a2", alpha=0.5) +
+    geom_line(color="#69b3a2") +
+    geom_vline(xintercept = famous_british_vaccinated$week) +
+    ggtitle("Vaccination of famous Britons (vertical lines) for vaccination of Americans in 2021")
+
+p
+
+```
+
+
+#### By days
+```{r}
+famous_british_vaccinated$date <- as.Date(famous_british_vaccinated$date)
+
+p <- us_vaccinated.daily %>%
+  ggplot( aes(x=date, y=daily_vaccinations_per_million)) +
+    geom_area(fill="#69b3a2", alpha=0.5) +
+    geom_line(color="#69b3a2") +
+    geom_vline(xintercept = famous_british_vaccinated$date) +
+    ggtitle("Vaccination of famous Britons (vertical lines) for vaccination of Americans in 2021")
+p
+```
+
+## Britons and famous Americans
+
+
+#### By weeks
+```{r}
+p <- british_vaccinated.weekly %>%
+  ggplot( aes(x=week, y=weekly_vaccinations_per_million)) +
+    geom_area(fill="#69b3a2", alpha=0.5) +
+    geom_line(color="#69b3a2") +
+    geom_vline(xintercept = famous_us_vaccinated$week) +
+    ggtitle("Vaccination of famous Americans (vertical lines) for vaccination of Britons in 2021")
+
+p
+
+```
+
+#### By days
+```{r}
+famous_us_vaccinated$date <- as.Date(famous_us_vaccinated$date)
+
+p <- british_vaccinated.daily %>%
+  ggplot( aes(x=date, y=daily_vaccinations_per_million)) +
+    geom_area(fill="#69b3a2", alpha=0.5) +
+    geom_line(color="#69b3a2") +
+    geom_vline(xintercept = famous_us_vaccinated$date) +
+    ggtitle("Vaccination of famous Americans (vertical lines) for vaccination of Britons in 2021")
+p
+```
+
+#### We did this on the usual information, but now let's look at the percentage change by days and weeks to better assess the percentage dependence not on the number, but on the change of increase or decrease in vaccinations. To do this, simply count the growth rates of both countries
+
+
+### Calculating growth rates for Britain (weekly)
+```{r}
+growth_rate_british.weekly <- british_vaccinated.weekly %>%
+  # first sort by year
+  arrange(week) %>%
+  mutate(Diff_week = week - lag(week),  # Difference in week time
+         Diff_growth = weekly_vaccinations_per_million - lag(weekly_vaccinations_per_million), # Difference in vaccination between weeks
+         Rate_percent = (Diff_growth / Diff_week)/weekly_vaccinations_per_million * 100) # growth rate in percent
+
+growth_rate_british.weekly <- growth_rate_british.weekly  %>%
+  mutate(across(where(is.numeric), ~ ifelse(is.na(.), 0, .)))
+
+growth_rate_british.weekly
+```
+
+### Calculating growth rates for the US (weekly)
+```{r}
+growth_rate_us.weekly <- us_vaccinated.weekly %>%
+  # first sort by year
+  arrange(week) %>%
+  mutate(Diff_week = week - lag(week),  # Difference in week time
+         Diff_growth = weekly_vaccinations_per_million - lag(weekly_vaccinations_per_million), # Difference in vaccination between weeks
+         Rate_percent = (Diff_growth / Diff_week)/weekly_vaccinations_per_million * 100) # growth rate in percent
+
+growth_rate_us.weekly <- growth_rate_us.weekly  %>%
+  mutate(across(where(is.numeric), ~ ifelse(is.na(.), 0, .)))
+
+growth_rate_us.weekly
+```
+
+
+### Calculating growth rates for Britain (daily)
+```{r}
+growth_rate_british.daily <- british_vaccinated.daily %>%
+  # first sort by year
+  arrange(date) %>%
+  mutate(Diff_day = days - lag(days),  # Difference in week time
+         Diff_growth = daily_vaccinations_per_million - lag(daily_vaccinations_per_million), # Difference in vaccination between weeks
+         Rate_percent = (Diff_growth / Diff_day)/daily_vaccinations_per_million * 100) # growth rate in percent
+
+growth_rate_british.daily <- growth_rate_british.daily  %>%
+  mutate(across(where(is.numeric), ~ ifelse(is.na(.), 0, .)))
+
+growth_rate_british.daily
+```
+
+### Calculating growth rates for the US (daily)
+```{r}
+growth_rate_us.daily <- us_vaccinated.daily %>%
+  # first sort by year
+  arrange(date) %>%
+  mutate(Diff_day = days - lag(days),  # Difference in week time
+         Diff_growth = daily_vaccinations_per_million - lag(daily_vaccinations_per_million), # Difference in vaccination between weeks
+         Rate_percent = (Diff_growth / Diff_day)/daily_vaccinations_per_million * 100) # growth rate in percent
+
+growth_rate_us.daily <- growth_rate_us.daily  %>%
+  mutate(across(where(is.numeric), ~ ifelse(is.na(.), 0, .)))
+
+growth_rate_us.daily
+```
+
+
+### Plotting growth rates for Britain and famous Americans (weekly)
+```{r}
+
+p.growth_british.weekly <- growth_rate_british.weekly %>%
+  ggplot( aes(x=week, y=Rate_percent)) +
+    geom_area(fill="#69b3a2", alpha=0.5) +
+    geom_line(color="#69b3a2") +
+    geom_vline(xintercept = famous_us_vaccinated$week) +
+    ggtitle("Growth rate, Vacc. of famous Americans (vertical lines) for vacc. of Britons in 2021")
+
+p.growth_british.weekly
+```
+
+### Plotting growth rates for the US and famous Britons (weekly)
+```{r}
+p.growth_us.weekly <- growth_rate_us.weekly %>%
+  ggplot( aes(x=week, y=Rate_percent)) +
+    geom_area(fill="#69b3a2", alpha=0.5) +
+    geom_line(color="#69b3a2") +
+    geom_vline(xintercept = famous_british_vaccinated$week) +
+    ggtitle("Growth rate, Vacc. of famous Britons (vertical lines) for vacc. of Americans in 2021")
+
+p.growth_us.weekly
+```
+
+### Plotting growth rates for Britain and famous Americans (daily)
+```{r}
+
+p.growth_british.daily <- growth_rate_british.daily %>%
+  ggplot( aes(x=days, y=Rate_percent)) +
+    geom_area(fill="#69b3a2", alpha=0.5) +
+    geom_line(color="#69b3a2") +
+    geom_vline(xintercept = famous_us_vaccinated$days) +
+    ggtitle("Growth rate, Vacc. of famous Americans (vertical lines) for vacc. of Britons in 2021")
+
+p.growth_british.daily
+```
+
+
+### Plotting growth rates for the US and famous Britons (daily)
+```{r}
+
+p.growth_us.daily <- growth_rate_us.daily %>%
+  ggplot( aes(x=days, y=Rate_percent)) +
+    geom_area(fill="#69b3a2", alpha=0.5) +
+    geom_line(color="#69b3a2") +
+    geom_vline(xintercept = famous_british_vaccinated$days) +
+    ggtitle("Growth rate, Vacc. of famous Britons (vertical lines) for vacc. of Americans in 2021")
+
+p.growth_us.daily
+```
+
+#### Merge part
+
+This part is optional, but we wanted to see if there is any correlation between these growth rates in Britain and the United States. So we just combined by outer join the data from both tables
+
+```{r}
+merged.us.uk <- merge(growth_rate_british.daily, growth_rate_us.daily[, c("days", "Rate_percent"), ], by = "days")
+
+merged.us.uk <- merged.us.uk %>% 
+  rename(
+    Rate_percent.uk = Rate_percent.x,
+    Rate_percent.us = Rate_percent.y
+    )
+merged.us.uk$daily_vaccinations_per_million <- NULL
+merged.us.uk$Diff_day <- NULL
+merged.us.uk$Diff_growth <- NULL
+
+merged.us.uk
+```
+
+
+#### Cross-correlation between British and US vaccination data
+
+And as you can see, when the lag varies around -8, then the value becomes significant in a positive correlation. But it is still very small ( < 0.3 ). Therefore, we can assume that there is a minimal positive correlation at a shift of about -8.
+
+```{r}
+# ccf time series
+par(mfrow=c(1,1))
+ccf(merged.us.uk[, c("Rate_percent.uk")], merged.us.uk[, c("Rate_percent.us")], 
+    lag.max = 100,
+    main = "Cros-Correlation Plot",
+    ylab = "CCF")
+
+```
+
+Now to calculate whether there is a correlation between celebrity vaccination and vaccination rates. First, move our day counter when the celebrity was vaccinated to the is_famous column by one. After all, if a celebrity was vaccinated at time `t`, then we at least need to know whether there is a correlation at time `t + 1` and so on.
+
+```{r}
+famous_british_vaccinated$is_famous <- 1
+
+merged.us_vacc.uk_people <- merge(growth_rate_us.daily[, c("days", "Rate_percent"), ], famous_british_vaccinated[, c("days", "is_famous"), ], all = TRUE)
+
+merged.us_vacc.uk_people <- merged.us_vacc.uk_people  %>%
+  mutate(across(where(is.numeric), ~ ifelse(is.na(.), 0, .)))
+
+temp <- setDF(lapply(merged.us_vacc.uk_people, function(x) shift(x, type = 'lag', fill = x[1L])))[]
+merged.us_vacc.uk_people$is_famous_shifted <- temp$is_famous
+merged.us_vacc.uk_people
+```
+
+We will now cross-correlate our data. We will be interested only in a positive lag. After all, a negative lag will show a correlation in the past, and this does not make sense.
+
+And how can we see that the correlation is present from the beginning of the celebrity vaccination announcement until the 33nd day from that moment. But again, this positive correlation is so minimal `(~0.2 < x < 0.3)` that it barely exceeds the line of significance. But this result is obvious, because the correlation between Britain and the United States is not really obvious. Perhaps, if you choose the best countries at a similar rate of vaccination, they will show a clearer result. And yes, the growth rate of vaccination of famous Britons has a vague positive correlation.
+
+
+```{r}
+# ccf time series
+par(mfrow=c(1,1))
+ccf(merged.us_vacc.uk_people$is_famous_shifted, merged.us_vacc.uk_people$Rate_percent, 
+    lag.max = 100,
+    main = "Cros-Correlation Plot",
+    ylab = "CCF")
+
+```
+
+### Now let's repeat the same test, only for American celebrities and the British growth rate of vaccination
+
+```{r}
+famous_us_vaccinated$is_famous <- 1
+
+merged.uk_vacc.us_people <- merge(growth_rate_british.daily[, c("days", "Rate_percent"), ], famous_us_vaccinated[, c("days", "is_famous"), ], all = TRUE)
+
+merged.uk_vacc.us_people <- merged.uk_vacc.us_people  %>%
+  mutate(across(where(is.numeric), ~ ifelse(is.na(.), 0, .)))
+
+temp <- setDF(lapply(merged.uk_vacc.us_people, function(x) shift(x, type = 'lag', fill = x[1L])))[]
+merged.uk_vacc.us_people$is_famous_shifted <- temp$is_famous
+merged.uk_vacc.us_people
+```
+
+And here, as you can see, there is a correlation on day 10, up to 25. As in the previous case, there is a fuzzy positive correlation. And the level of significance exceeds the value by 68-69 days, but it is slightly as at 78 days. As we can see, the results are approximately similar, there is no clear correlation. Therefore, the conclusion remains the same. And yes, the growth rate of vaccination of famous Britons has a vague positive correlation.
+
+```{r}
+# ccf time series
+par(mfrow=c(1,1))
+ccf(merged.uk_vacc.us_people$is_famous_shifted, merged.uk_vacc.us_people$Rate_percent, 
+    lag.max = 100,
+    main = "Cros-Correlation Plot",
+    ylab = "CCF")
+
+```

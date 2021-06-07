@@ -1,0 +1,196 @@
+---
+title: "Investigation of vaccine rates"
+output:
+  html_document:
+    df_print: paged
+  pdf_document: default
+authors: Volodymyr Savchuk, Nazar Dobrovolskyy
+---
+
+```{r}
+#install.packages("data.table")
+#install.packages("readxl")
+#install.packages("ggfortify")
+#install.packages("broom")
+#install.packages("olsrr")
+#install.packages("viridis")
+
+library(ggplot2)
+library(plyr)
+library(dplyr)
+library(fitdistrplus)
+library(logspline)
+library(data.table)
+library(readxl)
+library(ggfortify)
+library(broom)
+library(olsrr)
+library(viridis)
+```
+### Data collecting
+
+
+```{r}
+
+data_all_countries <- read.csv("all_countries.csv")
+data_all_countries
+```
+
+```{r}
+covid_data <- read_excel("covid_data.xlsx")
+covid_data$Population <- as.numeric(as.character(covid_data$Population))
+covid_data
+```
+
+```{r}
+gdp_data <- read_excel("GDP.xls")
+gdp_data
+```
+
+```{r}
+data_vaccination <- read.csv("country_vaccinations.csv")
+data_vaccination
+```
+
+
+```{r}
+# Replace `NA` for numeric columns in table about vaccination info.
+data_vaccination <- data_vaccination  %>%
+  mutate(across(where(is.numeric), ~ ifelse(is.na(.), 0, .)))
+data_vaccination
+```
+
+```{r}
+# Creating table country_vaccine: people vaccinated in each country
+country_vaccine <- aggregate(data_vaccination$daily_vaccinations_raw, by=list(data_vaccination$country), sum)
+country_vaccine <- country_vaccine %>% 
+  rename(
+    Country = Group.1
+    )
+country_vaccine <- country_vaccine %>% 
+  rename(
+    Vaccine.Quantity = x
+    )
+country_vaccine
+
+```
+### Merging data
+```{r}
+data_all_countries <- merge(data_all_countries, country_vaccine, by="Country")
+data_all_countries
+```
+```{r}
+# Adding actual GDP, covid total cases and actual Death due to covid to table data_all_countries.
+data_all_countries <- merge(data_all_countries, gdp_data, by="Country")
+data_all_countries$Total.Cases <- NULL
+data_all_countries$Total.Deaths <- NULL
+data_all_countries$Population <- NULL
+data_all_countries$GDP <- NULL
+data_all_countries$Coast.Area.Ratio <- NULL
+data_all_countries <- merge(data_all_countries, covid_data, by="Country")
+data_all_countries[is.na(data_all_countries)] <- 0
+data_all_countries
+```
+
+```{r}
+# changing country names to corresponding number
+j = 0
+for (i in c(0:length(data_all_countries$Country))) {
+  data_all_countries$Country[i] = j
+  j = j + 1
+}
+data_all_countries$Country <- as.integer(data_all_countries$Country) 
+data_all_countries$Deaths <- as.integer(data_all_countries$Deaths) 
+```
+
+
+```{r}
+data_all_countries
+str(data_all_countries)
+```
+### Building the Linear Regression Model
+```{r}
+rquery.cormat(data_all_countries)
+```
+
+```{r}
+model <- lm(data=data_all_countries, Vaccine.Quantity ~ gdp + Area + Population + Deaths + Cases + Recovered)
+summary(model)
+ols_vif_tol(model)
+```
+```{r}
+model <- lm(data=data_all_countries, Vaccine.Quantity ~ gdp + Area + Population + Deaths)
+summary(model)
+ols_vif_tol(model)
+```
+
+### Analyzing the assumptions about the data
+```{r}
+autoplot(model)
+
+descdist(data_all_countries$Vaccine.Quantit)
+descdist(data_all_countries$Population)
+descdist(data_all_countries$Area)
+descdist(data_all_countries$gdp)
+descdist(data_all_countries$Cases)
+descdist(data_all_countries$Deaths)
+```
+
+### Handling outlayers
+
+```{r}
+for (i in c(1:length(data_all_countries$Vaccine.Quantity))) {
+  if (data_all_countries$Vaccine.Quantity[i] < 1) {
+    data_all_countries$Vaccine.Quantity[i] = 2
+  }
+}
+for (i in c(1:length(data_all_countries$Deaths))) {
+  if (data_all_countries$Deaths[i] < 1)  {
+    data_all_countries$Deaths[i] = 2
+  }
+}
+
+data_all_countries <- data_all_countries[data_all_countries$Country != 133,]
+data_all_countries <-data_all_countries[data_all_countries$Country != 134,]
+data_all_countries <-data_all_countries[data_all_countries$Country != 67,]
+data_all_countries <-data_all_countries[data_all_countries$Country != 94,]
+```
+
+### Making log tranformations 
+
+```{r}
+vaccine.transformed = log(data_all_countries$Vaccine.Quantity)
+gdp.transformed = log(data_all_countries$gdp)
+area.transformed = log(data_all_countries$Area)
+population.transformed = log(data_all_countries$Population)
+deaths.transformed = log(data_all_countries$Deaths)
+
+descdist(vaccine.transformed)
+descdist(gdp.transformed)
+descdist(area.transformed)
+descdist(population.transformed)
+descdist(deaths.transformed)
+```
+
+### Building the Log-Log Regression Model
+
+```{r}
+log_log_model <- lm(data=data_all_countries, vaccine.transformed ~ gdp.transformed + population.transformed)
+summary(log_log_model)
+autoplot(log_log_model)
+```
+### Plotting the Log-Log Regression Line
+
+```{r}
+ggplot(data=data_all_countries, aes(x = gdp + Population, y = Vaccine.Quantity)) +
+    geom_jitter(alpha = 0.5) +
+    geom_smooth(method = "lm", color = viridis(1, begin = 1), se = FALSE, 
+                linetype = "dashed") +
+    geom_line(data = data.frame(x = exp(log_log_model$model$gdp.transformed) + exp(log_log_model$model$population.transformed),
+                                y = exp(predict(log_log_model))),
+              aes(x = x, y = y),
+              color = viridis(1, end = 0), size = 0.7) +
+    geom_smooth(span = 1, color = viridis(1, begin = 0.6), size = 0.7, linetype = "dashed",
+                se = FALSE)
+```
+
